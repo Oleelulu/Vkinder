@@ -13,6 +13,23 @@ class VkBot:
         self.vk_group = vk_api.VkApi(token=comunity_token)
         self.vk_group_got_api = self.vk_group.get_api()
         self.longpoll = VkLongPoll(self.vk_group)
+        self.list_offset=0
+        self.list_count=100
+
+    """Функция получения информации о пользователе"""
+    def get_user_info(self, user_id):
+        try:
+            user_info = self.vk_user_got_api.users.get(user_ids=user_id, 
+                fields="bdate, " 
+                   "status, "
+                   "sex, "
+                   "city, " 
+                   "domain, "  
+                   "home_town, "
+                   "can_write_private_message, " )
+            return user_info
+        except TypeError:
+            return None
 
     """Функция отправки сообщений с вложениями"""
     def message_send(self, user_id, message, attachments='none'):
@@ -28,10 +45,8 @@ class VkBot:
 
     """Получение имени пользователя, отправившего запрос"""
     def get_name(self, user_id):
-        user_info = self.vk_group_got_api.users.get(user_id = user_id)
-        print(user_info)
         try:
-            name = user_info[0]['first_name']
+            name = self.user_info[0]['first_name']
             return name
         except KeyError:
             self.message_send(user_id, "Ошибка")
@@ -77,7 +92,7 @@ class VkBot:
     def get_age_of_user(self, user_id):
         global age_from, age_to
         try:
-            info = self.vk_user_got_api.users.get(user_ids=user_id, fields="bdate")[0]['bdate']
+            info = self.user_info[0]['bdate']
             print(info)
             bdate_splited = info.split(".")
             reverse_bdate = datetime.date(int(bdate_splited[2]), int(bdate_splited[1]), int(bdate_splited[0]))
@@ -103,7 +118,7 @@ class VkBot:
                       f' Введите "да" или "y" - поиск будет произведен в городе, указанном в разделе Контакты.'
                       f' Или введите название города для поиска, например: "Москва"'
                       )
-        info = self.vk_user_got_api.users.get(user_id=user_id, fields="city")
+        info = self.user_info
         for event in self.longpoll.listen():
             if event.type == VkEventType.MESSAGE_NEW and event.to_me:
                 answer = event.text.lower()
@@ -137,10 +152,7 @@ class VkBot:
 
     """Вычисляем пол искомого пользователя"""
     def gender(self, user_id):
-        info = self.vk_user_got_api.users.get(
-            user_id=user_id,
-            fields="sex"
-        )
+        info = self.user_info
         gender = 3 - info[0]['sex']
         if gender == 1:
             print('Ищем женщину.')
@@ -154,31 +166,45 @@ class VkBot:
             return gender
 
     """Поиск пользователей по заданным параметрам """
-    def searching_for_person(self, user_id):
-        global founded_persons
-        founded_persons = []
-        res = self.vk_user_got_api.users.search(
+    def vk_persons_search(self, user_id, list_offset, list_count):
+        try:
+            res = self.vk_user_got_api.users.search(
             sort=0, 
+            offset=list_offset, # смещение относительно первого пользователя
             city=city_id,
             sex=self.gender(user_id),  # противоположный для запрашивающего пользователя
             status=1,  # 1 - не женат или не замужем, 6 - в активном поиске
             age_from=age_from, # минимальный возраст
             age_to=age_to, # максимальный возраст
             has_photo=1,  # 1 - у пользователя есть фото
-            count=1000, # 1000 - запрашиваем  1000 профилей
+            count=list_count, # запрашиваемое кол-во профилей
             fields="can_write_private_message, "  #1 — можно отправить личное сообщение
                    "city, " 
                    "domain, "  # никнейм
-        )
+            )
+            print("list_offset ",list_offset)
+            return res
+        except:
+            return None
+
+    def searching_for_person(self, user_id):
+        global founded_persons
+        founded_persons = []
+        res = self.vk_persons_search(user_id, self.list_offset, self.list_count)
         number = 0
-        for person in res["items"]:
-            if not person["is_closed"]:
-                if "city" in person and person["city"]["id"] == city_id and person["city"]["title"] == city_title:
-                    number += 1
-                    id_vk = person["id"]
-                    founded_persons.append(id_vk)
-        print(f'Найдено {number} открытых профилей из {res["count"]}')
-        return
+        try:
+            for person in res["items"]:
+                if not person["is_closed"]:
+                    if "city" in person and person["city"]["id"] == city_id and person["city"]["title"] == city_title:
+                        number += 1
+                        id_vk = person["id"]
+                        founded_persons.append(id_vk)
+            print(f'Найдено {number} открытых профилей из {res["count"]}')
+            print(founded_persons)
+            print(len(founded_persons))
+        except:
+            print("Произошла неизвестная ошибка")
+        return    
 
     """Получение фотографий пользователей"""
     def get_photos(self, user_id):
@@ -201,55 +227,44 @@ class VkBot:
         photo_ids = []
         for i in list_of_ids:
             photo_ids.append(i[1])
-        try:
-            attachments.append('photo{}_{}'.format(user_id, photo_ids[0]))
-            attachments.append('photo{}_{}'.format(user_id, photo_ids[1]))
-            attachments.append('photo{}_{}'.format(user_id, photo_ids[2]))
-            return attachments
-        except IndexError:
-            try:
-                attachments.append('photo{}_{}'.format(user_id, photo_ids[0]))
-                return attachments
-            except IndexError:
-                return print(f'Нет фото')
+        for i in range(len(photo_ids)):
+            if i>2:
+                break
+            attachments.append('photo{}_{}'.format(user_id, photo_ids[i]))
+        return attachments
 
     """Сравниваем с базой данных"""
-    def get_person_id(self):
-        global unique_id, found_persons
+    def get_person_id(self, user_id):
         seen_person = []
         for i in select_profiles():
             seen_person.append(int(i[0]))
         if not seen_person:
             try: 
-                unique_id = founded_persons[0]
-                return unique_id
+                return founded_persons[0]
             except NameError:
-                found_persons = 0
-                return found_persons
+                return None
         else:
             try:
-                for ifp in founded_persons:
-                    if ifp in seen_person:
+                for id in founded_persons:
+                    if id in seen_person:
                         pass
                     else:
-                        unique_id = ifp
-                        return unique_id
+                        return id
+                else:
+                    self.list_offset += self.list_count
+                    self.searching_for_person(user_id)
+                    if len(founded_persons) == 0:
+                        return None
+                    return self.get_person_id(user_id)
             except NameError:
-                found_persons = 0
-                return found_persons
-
+                try: 
+                    return founded_persons[0]
+                except NameError:
+                    return None
 
     """Информация по подходящим анкетам"""
     def found_person_info(self, show_person_id):
-        res = self.vk_user_got_api.users.get(
-            user_ids=show_person_id,
-            fields="bdate, " 
-                   "status, "
-                   "can_write_private_message, " 
-                   "city, " 
-                   "domain, "  
-                   "home_town, "
-        )
+        res = self.get_user_info(user_id=show_person_id)
         first_name = res[0]["first_name"]
         last_name = res[0]["last_name"]
         age = self.get_age_of_person(res[0]["bdate"])
@@ -267,8 +282,7 @@ class VkBot:
 
     """Просмотр анкет"""
     def show_person(self, user_id):
-        print(self.get_person_id())
-        if self.get_person_id() == None:
+        if self.get_person_id(user_id) == None:
             self.message_send(user_id,
                           f'Вы просмотрели все доступные анкеты. Будет выполнен повторный поиск. \n'
                           f'Измените возрастной диапазон или город. \n'
@@ -276,13 +290,14 @@ class VkBot:
             for event in self.longpoll.listen():
                 if event.type == VkEventType.MESSAGE_NEW and event.to_me:
                     age = event.text
+                    self.list_offset = 0
                     self.input_age(user_id, age)
                     self.get_city(user_id)
                     self.searching_for_person(user_id)
                     self.show_person(user_id)
                     return
         else:
-            self.message_send(user_id, self.found_person_info(self.get_person_id()), self.get_photos(self.get_person_id()))
-            insert_profiles(self.get_person_id())
+            self.message_send(user_id, self.found_person_info(self.get_person_id(user_id)), self.get_photos(self.get_person_id(user_id)))
+            insert_profiles(self.get_person_id(user_id))
 
 bot = VkBot()

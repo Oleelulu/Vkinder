@@ -7,6 +7,7 @@ for event in bot.longpoll.listen():
     if event.type == VkEventType.MESSAGE_NEW and event.to_me:
         user_request = event.text.lower()
         user_id = event.user_id
+        bot.user_info=bot.get_user_info(user_id)
         if user_request == 'привет' or user_request == 'hi':
             bot.message_send(user_id, f'Добрый день, {bot.get_name(user_id)}! \n' 
                                       f'Вас приветствует чат-бот Vkinder. Наберите команду "поиск" или "f".')
@@ -20,7 +21,7 @@ for event in bot.longpoll.listen():
             create_table()  # создает новую базу для дальнейшего поиска.
             bot.message_send(user_id, f'Список просмотренных профилей очищен. Для нового поиска наберите "поиск" или "f".')
         elif user_request == 'далее' or user_request == 'n':
-            if bot.get_person_id() != 0:
+            if bot.get_person_id(user_id) != 0:
                 bot.show_person(user_id)
             else:
                 bot.message_send(user_id, f'Сначала наберите "поиск" или "f"')
